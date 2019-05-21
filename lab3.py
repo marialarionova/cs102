@@ -20,7 +20,7 @@ from scipy.fftpack import dct, idct
 # 15. yuv2rgb
 
 
-def lum_or_color(matrix):
+def lum_color(matrix):
     if matrix == "lum":
         return np.array([[16, 11, 10, 16, 24, 40, 51, 61],
                     [12, 12, 14, 19, 26, 58, 60, 55],
@@ -42,7 +42,7 @@ def lum_or_color(matrix):
                 [99, 99, 99, 99, 99, 99, 99, 99]])
 
 
-def rgb2yuv(img):
+def rgb_yuv(img):
     x_form = np.array([[.299, .587, .114], [-.1687, -.3313, .5], [.5, -.4187, -.0813]])
     new_img = img.dot(x_form.T)
     new_img[:, :, [1, 2]] += 128
@@ -50,7 +50,7 @@ def rgb2yuv(img):
     return new_img.astype(np.uint8)
 
 
-def yuv2rgb(img):
+def yuv_rgb(img):
     x_form = np.array([[1, 0, 1.402], [1, -0.34414, -0.71414], [1, 1.772, 0]])
     rgb = img
     rgb[:, :, [1, 2]] -= 128
@@ -67,18 +67,18 @@ def decimate(img, block_size):
     return rows, cols, blocks_count, top_left_cells, oth_cells
 
 
-def interpolate(block_size, blocks_count):
+def interpol(block_size, blocks_count):
     image_size = int(np.sqrt(blocks_count)) * block_size
     blocks_per_line = image_size // block_size
     img = np.empty((image_size, image_size, 3), dtype=np.uint8)
     return img, blocks_per_line
 
 
-def center_on_zero(img, i, j, k, block_size):
+def zero_center(img, i, j, k, block_size):
     return img[i: i + block_size, j: j + block_size, k] - 128
 
 
-def return_center(img, i, j, k, block_size, block):
+def center_return(img, i, j, k, block_size, block):
     img[i: i + block_size, j: j + block_size, k] = block + 128
     return img
 
@@ -92,20 +92,19 @@ def undo_dct(img):
 
 
 def quantize(block, matrix):
-    quant_matrix = lum_or_color(matrix)
+    quant_matrix = lum_color(matrix)
     return block // quant_matrix
 
 
 def dequantize(block, matrix):
-    quant_matrix = lum_or_color(matrix)
+    quant_matrix = lum_color(matrix)
     return block * quant_matrix
 
 
 def zigzag_points(rows, cols):
-    # constants for directions
+    
     UP, DOWN, RIGHT, LEFT, UP_RIGHT, DOWN_LEFT = range(6)
 
-    # move the point in different directions
     def move(direction, point):
         return {
             UP: lambda point: (point[0] - 1, point[1]),
@@ -116,14 +115,11 @@ def zigzag_points(rows, cols):
             DOWN_LEFT: lambda point: move(DOWN, move(LEFT, point))
         }[direction](point)
 
-    # return true if point is inside the block bounds
     def inbounds(point):
         return 0 <= point[0] < rows and 0 <= point[1] < cols
 
-    # start in the top-left cell
     point = (0, 0)
 
-    # True when moving up-right, False when moving down-left
     move_up = True
 
     for i in range(rows * cols):
@@ -169,7 +165,7 @@ def huffman_rle(img):
 
 def encode(img, block_size):
 
-    yuv_img = rgb2yuv(img)
+    yuv_img = rgb_yuv(img)
     rows, cols, blocks_count, top_left_cells, oth_cells = decimate(yuv_img, block_size)
     block_index = 0
 
@@ -178,7 +174,7 @@ def encode(img, block_size):
             block_index += 1
 
             for k in range(3):
-                block = center_on_zero(yuv_img, i, j, k, block_size)
+                block = zero_center(yuv_img, i, j, k, block_size)
                 dct_matrix = do_dct(block)
                 quant_matrix = quantize(dct_matrix, "lum" if k == 0 else "color")
                 zigzag_block = block_to_zigzag(quant_matrix)
@@ -192,7 +188,7 @@ def encode(img, block_size):
 def decode(img, block_size):
 
     top_left_cells, oth_cells, blocks_count = img
-    new_img, blocks_per_line = interpolate(block_size, blocks_count)
+    new_img, blocks_per_line = interpol(block_size, blocks_count)
 
     for block_index in range(blocks_count):
         i = block_index // blocks_per_line * block_size
@@ -204,9 +200,9 @@ def decode(img, block_size):
             dct_matrix = dequantize(quant_matrix, "lum" if k == 0 else "color")
             block = undo_dct(dct_matrix)
 
-            new_img = return_center(new_img, i, j, k, block_size, block)
+            new_img = center_return(new_img, i, j, k, block_size, block)
 
-    rgb_img = yuv2rgb(new_img.astype(np.uint8))
+    rgb_img = yuv_rgb(new_img.astype(np.uint8))
 
     return rgb_img
 
